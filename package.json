@@ -1,0 +1,12 @@
+{
+  "name": "filebridge-relay",
+  "version": "1.0.0",
+  "description": "Relay/signaling server that pairs a Host phone and a Client phone and relays file-list / file-download messages between them over WebSocket, from any network.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
