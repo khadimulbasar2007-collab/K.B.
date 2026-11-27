@@ -1,12 +1,13 @@
 package com.basar.filebridge.security
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
 class PasswordStore(context: Context) {
 
-    private val prefs = run {
+    private val prefs: SharedPreferences = try {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
@@ -17,6 +18,8 @@ class PasswordStore(context: Context) {
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
+    } catch (e: Exception) {
+        context.getSharedPreferences("filebridge_prefs_fallback", Context.MODE_PRIVATE)
     }
 
     fun get(): String? = prefs.getString(KEY_PASSWORD, null)
