@@ -104,7 +104,9 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
     val downloadState by session.downloadState.collectAsState()
 
     var previewBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    var requestedName by remember { mutableStateOf<String?>(null) }
+    var activePath by remember { mutableStateOf<String?>(null) }
+    var activeName by remember { mutableStateOf<String?>(null) }
+    var explicitSave by remember { mutableStateOf(false) }
     var pendingBytes by remember { mutableStateOf<ByteArray?>(null) }
     var pendingName by remember { mutableStateOf<String?>(null) }
     var savedMessage by remember { mutableStateOf<String?>(null) }
@@ -121,33 +123,37 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
     LaunchedEffect(downloadState) {
         val state = downloadState
         if (state is ClientSession.DownloadState.Done) {
-            requestedName = null
-            pendingBytes = state.bytes
-            pendingName = state.suggestedName
-            when {
-                isImageFile(state.suggestedName) -> {
-                    val bmp = BitmapFactory.decodeByteArray(state.bytes, 0, state.bytes.size)
-                    previewBitmap = bmp
-                }
-                isVideoFile(state.suggestedName) -> {
-                    try {
-                        val tempFile = File(context.cacheDir, state.suggestedName)
-                        tempFile.writeBytes(state.bytes)
-                        val uri = FileProvider.getUriForFile(
-                            context, "com.basar.filebridge.fileprovider", tempFile
-                        )
-                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "video/*")
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            activePath = null
+            if (explicitSave) {
+                saveToDownloads(context, state.suggestedName, state.bytes)
+                savedMessage = "✅ সংরক্ষণ হয়েছে: ${state.suggestedName}"
+            } else {
+                pendingBytes = state.bytes
+                pendingName = state.suggestedName
+                when {
+                    isImageFile(state.suggestedName) -> {
+                        val bmp = BitmapFactory.decodeByteArray(state.bytes, 0, state.bytes.size)
+                        previewBitmap = bmp
+                    }
+                    isVideoFile(state.suggestedName) -> {
+                        try {
+                            val tempFile = File(context.cacheDir, state.suggestedName)
+                            tempFile.writeBytes(state.bytes)
+                            val uri = FileProvider.getUriForFile(
+                                context, "com.basar.filebridge.fileprovider", tempFile
+                            )
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "video/*")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
                         }
-                        context.startActivity(intent)
-                    } catch (e: Exception) {
-                        // no video player, ignore
                     }
                 }
             }
         } else if (state is ClientSession.DownloadState.Failed) {
-            requestedName = null
+            activePath = null
         }
     }
 
@@ -171,22 +177,33 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
 
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     items(entries) { entry ->
+                        val isActive = activePath == entry.path
+                        val progressText = (downloadState as? ClientSession.DownloadState.InProgress)
+                            ?.takeIf { isActive }
+                            ?.let { "${it.received}/${it.total}" }
+
                         FileRow(
                             entry = entry,
+                            isDownloading = isActive,
+                            progressText = progressText,
                             onOpenFolder = { session.openFolder(entry.path) },
+                            onPreview = {
+                                explicitSave = false
+                                activePath = entry.path
+                                activeName = entry.name
+                                session.download(entry)
+                            },
                             onDownload = {
-                                requestedName = entry.name
+                                explicitSave = true
+                                activePath = entry.path
+                                activeName = entry.name
                                 session.download(entry)
                             }
                         )
                     }
                 }
 
-                if (requestedName != null) {
-                    Text("📤 \"$requestedName\" আনা হচ্ছে, অপেক্ষা করুন…")
-                }
-
-                if (pendingBytes != null && pendingName != null) {
+                if (pendingBytes != null && pendingName != null && previewBitmap == null) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -207,12 +224,8 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
 
                 savedMessage?.let { Text(it) }
 
-                when (val d = downloadState) {
-                    is ClientSession.DownloadState.InProgress ->
-                        Text("আনা হচ্ছে… ${d.received}/${d.total}")
-                    is ClientSession.DownloadState.Failed ->
-                        Text("❌ ব্যর্থ: ${d.message}")
-                    else -> {}
+                (downloadState as? ClientSession.DownloadState.Failed)?.let {
+                    Text("❌ ব্যর্থ: ${it.message}")
                 }
             }
 
@@ -285,28 +298,50 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
 }
 
 @Composable
-private fun FileRow(entry: FileEntry, onOpenFolder: () -> Unit, onDownload: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { if (entry.isDirectory) onOpenFolder() else onDownload() }
-            .padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = if (entry.isDirectory) Icons.Filled.Folder else Icons.Filled.InsertDriveFile,
-            contentDescription = null
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(entry.name)
-            if (!entry.isDirectory) {
-                Text("${entry.sizeBytes / 1024} KB", style = MaterialTheme.typography.bodySmall)
+private fun FileRow(
+    entry: FileEntry,
+    isDownloading: Boolean,
+    progressText: String?,
+    onOpenFolder: () -> Unit,
+    onPreview: () -> Unit,
+    onDownload: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { if (entry.isDirectory) onOpenFolder() else onPreview() },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (entry.isDirectory) Icons.Filled.Folder else Icons.Filled.InsertDriveFile,
+                contentDescription = null
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(entry.name)
+                if (!entry.isDirectory) {
+                    Text("${entry.sizeBytes / 1024} KB", style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
         if (!entry.isDirectory) {
-            Icon(Icons.Filled.Download, contentDescription = "Download", modifier = Modifier.size(28.dp))
+            Spacer(Modifier.height(6.dp))
+            Button(
+                onClick = onDownload,
+                enabled = !isDownloading,
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                if (isDownloading) {
+                    Text(if (progressText != null) "ডাউনলোড হচ্ছে… $progressText" else "ডাউনলোড হচ্ছে…")
+                } else {
+                    Icon(Icons.Filled.Download, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("ডাউনলোড করুন")
+                }
+            }
         }
+        HorizontalDivider()
     }
 }
 
