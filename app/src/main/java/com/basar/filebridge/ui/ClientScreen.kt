@@ -97,6 +97,7 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
 
     var previewBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var previewName by remember { mutableStateOf("") }
+    var requestedName by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(password) {
         session.start()
@@ -110,6 +111,7 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
     LaunchedEffect(downloadState) {
         val state = downloadState
         if (state is ClientSession.DownloadState.Done) {
+            requestedName = null
             saveToDownloads(context, state.suggestedName, state.bytes)
             if (isImageFile(state.suggestedName)) {
                 val bmp = BitmapFactory.decodeByteArray(state.bytes, 0, state.bytes.size)
@@ -118,6 +120,8 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
                     previewName = state.suggestedName
                 }
             }
+        } else if (state is ClientSession.DownloadState.Failed) {
+            requestedName = null
         }
     }
 
@@ -137,11 +141,19 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
 
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     items(entries) { entry ->
-                        FileRow(entry, onOpen = {
-                            if (entry.isDirectory) session.openFolder(entry.path)
-                            else session.download(entry)
-                        })
+                        FileRow(
+                            entry = entry,
+                            onOpenFolder = { session.openFolder(entry.path) },
+                            onDownload = {
+                                requestedName = entry.name
+                                session.download(entry)
+                            }
+                        )
                     }
+                }
+
+                if (requestedName != null) {
+                    Text("📤 \"$requestedName\" এর জন্য অনুরোধ পাঠানো হয়েছে, অপেক্ষা করুন…")
                 }
 
                 when (val d = downloadState) {
@@ -212,9 +224,12 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
 }
 
 @Composable
-private fun FileRow(entry: FileEntry, onOpen: () -> Unit) {
+private fun FileRow(entry: FileEntry, onOpenFolder: () -> Unit, onDownload: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable { onOpen() }.padding(vertical = 10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = entry.isDirectory) { onOpenFolder() }
+            .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -229,7 +244,13 @@ private fun FileRow(entry: FileEntry, onOpen: () -> Unit) {
             }
         }
         if (!entry.isDirectory) {
-            Icon(Icons.Filled.Download, contentDescription = "Download")
+            IconButton(onClick = onDownload, modifier = Modifier.size(56.dp)) {
+                Icon(
+                    Icons.Filled.Download,
+                    contentDescription = "Download",
+                    modifier = Modifier.size(32.dp)
+                )
+            }
         }
     }
 }
