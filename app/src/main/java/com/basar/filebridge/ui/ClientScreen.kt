@@ -16,9 +16,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -105,8 +105,6 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
 
     var previewBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var activePath by remember { mutableStateOf<String?>(null) }
-    var activeName by remember { mutableStateOf<String?>(null) }
-    var explicitSave by remember { mutableStateOf(false) }
     var pendingBytes by remember { mutableStateOf<ByteArray?>(null) }
     var pendingName by remember { mutableStateOf<String?>(null) }
     var savedMessage by remember { mutableStateOf<String?>(null) }
@@ -124,31 +122,26 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
         val state = downloadState
         if (state is ClientSession.DownloadState.Done) {
             activePath = null
-            if (explicitSave) {
-                saveToDownloads(context, state.suggestedName, state.bytes)
-                savedMessage = "✅ সংরক্ষণ হয়েছে: ${state.suggestedName}"
-            } else {
-                pendingBytes = state.bytes
-                pendingName = state.suggestedName
-                when {
-                    isImageFile(state.suggestedName) -> {
-                        val bmp = BitmapFactory.decodeByteArray(state.bytes, 0, state.bytes.size)
-                        previewBitmap = bmp
-                    }
-                    isVideoFile(state.suggestedName) -> {
-                        try {
-                            val tempFile = File(context.cacheDir, state.suggestedName)
-                            tempFile.writeBytes(state.bytes)
-                            val uri = FileProvider.getUriForFile(
-                                context, "com.basar.filebridge.fileprovider", tempFile
-                            )
-                            val intent = Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(uri, "video/*")
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
+            pendingBytes = state.bytes
+            pendingName = state.suggestedName
+            when {
+                isImageFile(state.suggestedName) -> {
+                    val bmp = BitmapFactory.decodeByteArray(state.bytes, 0, state.bytes.size)
+                    previewBitmap = bmp
+                }
+                isVideoFile(state.suggestedName) -> {
+                    try {
+                        val tempFile = File(context.cacheDir, state.suggestedName)
+                        tempFile.writeBytes(state.bytes)
+                        val uri = FileProvider.getUriForFile(
+                            context, "com.basar.filebridge.fileprovider", tempFile
+                        )
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "video/*")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
                     }
                 }
             }
@@ -187,16 +180,8 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
                             isDownloading = isActive,
                             progressText = progressText,
                             onOpenFolder = { session.openFolder(entry.path) },
-                            onPreview = {
-                                explicitSave = false
+                            onReview = {
                                 activePath = entry.path
-                                activeName = entry.name
-                                session.download(entry)
-                            },
-                            onDownload = {
-                                explicitSave = true
-                                activePath = entry.path
-                                activeName = entry.name
                                 session.download(entry)
                             }
                         )
@@ -303,14 +288,13 @@ private fun FileRow(
     isDownloading: Boolean,
     progressText: String?,
     onOpenFolder: () -> Unit,
-    onPreview: () -> Unit,
-    onDownload: () -> Unit
+    onReview: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { if (entry.isDirectory) onOpenFolder() else onPreview() },
+                .clickable { if (entry.isDirectory) onOpenFolder() else onReview() },
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -328,16 +312,16 @@ private fun FileRow(
         if (!entry.isDirectory) {
             Spacer(Modifier.height(6.dp))
             Button(
-                onClick = onDownload,
+                onClick = onReview,
                 enabled = !isDownloading,
                 modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
                 if (isDownloading) {
-                    Text(if (progressText != null) "ডাউনলোড হচ্ছে… $progressText" else "ডাউনলোড হচ্ছে…")
+                    Text(if (progressText != null) "আনা হচ্ছে… $progressText" else "আনা হচ্ছে…")
                 } else {
-                    Icon(Icons.Filled.Download, contentDescription = null)
+                    Icon(Icons.Filled.Visibility, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("ডাউনলোড করুন")
+                    Text("দেখুন")
                 }
             }
         }
