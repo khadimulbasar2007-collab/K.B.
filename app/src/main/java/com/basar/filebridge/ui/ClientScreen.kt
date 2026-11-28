@@ -1,14 +1,18 @@
 package com.basar.filebridge.ui
 
 import android.content.ContentValues
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
@@ -16,13 +20,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.basar.filebridge.client.ClientSession
 import com.basar.filebridge.model.FileEntry
 import com.basar.filebridge.security.PasswordStore
 import kotlinx.coroutines.launch
+
+private fun isImageFile(name: String): Boolean =
+    name.substringAfterLast('.', "").lowercase() in setOf("jpg", "jpeg", "png", "gif", "webp", "bmp")
 
 @Composable
 fun ClientScreen(onBack: () -> Unit) {
@@ -85,6 +95,9 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
     val path by session.currentPath.collectAsState()
     val downloadState by session.downloadState.collectAsState()
 
+    var previewBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var previewName by remember { mutableStateOf("") }
+
     LaunchedEffect(password) {
         session.start()
         scope.launch { session.listenForever() }
@@ -98,6 +111,13 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
         val state = downloadState
         if (state is ClientSession.DownloadState.Done) {
             saveToDownloads(context, state.suggestedName, state.bytes)
+            if (isImageFile(state.suggestedName)) {
+                val bmp = BitmapFactory.decodeByteArray(state.bytes, 0, state.bytes.size)
+                if (bmp != null) {
+                    previewBitmap = bmp
+                    previewName = state.suggestedName
+                }
+            }
         }
     }
 
@@ -166,6 +186,27 @@ private fun ConnectedClient(password: String, onForgetPassword: () -> Unit, onBa
             TextButton(onClick = onForgetPassword) { Text("পাসওয়ার্ড পরিবর্তন") }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = onBack) { Text("ফিরে যান") }
+        }
+    }
+
+    previewBitmap?.let { bmp ->
+        Dialog(onDismissRequest = { previewBitmap = null }) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = previewName,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                IconButton(
+                    onClick = { previewBitmap = null },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+                }
+            }
         }
     }
 }
