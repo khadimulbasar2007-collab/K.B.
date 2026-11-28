@@ -16,6 +16,7 @@ private enum class Screen { HOME, HOST, CLIENT }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+                Thread.setDefaultUncaughtExceptionHandler(CrashHandler(applicationContext))
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
